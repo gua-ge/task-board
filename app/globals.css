@@ -402,15 +402,40 @@ textarea:focus-visible,
   white-space: nowrap;
 }
 
+.status-tone[data-status="todo"] {
+  --status-color: #5f6368;
+  --status-background: #f0f0f2;
+  --status-border: #d6d6da;
+}
+
+.status-tone[data-status="in_progress"] {
+  --status-color: #0055a4;
+  --status-background: #eaf2fa;
+  --status-border: #bfd4e8;
+}
+
+.status-tone[data-status="done"] {
+  --status-color: #1f6f36;
+  --status-background: #edf6ef;
+  --status-border: #c4ddca;
+}
+
+.status-tone[data-status="blocked"] {
+  --status-color: #a12b24;
+  --status-background: #f9eeee;
+  --status-border: #e6c5c2;
+}
+
 .card-status-select {
   min-height: 30px;
   max-width: 82px;
-  padding: 4px 5px;
-  border: 0;
-  border-radius: 6px;
-  color: var(--ink-muted);
-  background: transparent;
+  padding: 4px 7px;
+  border: 1px solid var(--status-border);
+  border-radius: var(--radius-pill);
+  color: var(--status-color);
+  background: var(--status-background);
   font-size: 10px;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -569,6 +594,13 @@ textarea:focus-visible,
 .link-form input {
   min-height: 44px;
   padding: 0 13px;
+}
+
+.field select.status-tone {
+  border-color: var(--status-border);
+  color: var(--status-color);
+  background-color: var(--status-background);
+  font-weight: 600;
 }
 
 .field textarea {

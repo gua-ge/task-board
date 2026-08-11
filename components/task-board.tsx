@@ -357,7 +357,8 @@ export default function TaskBoard({ initialGroups, initialSupportAgents }: TaskB
                       </time>
                     </div>
                     <select
-                      className="card-status-select"
+                      className="card-status-select status-tone"
+                      data-status={task.status}
                       value={task.status}
                       aria-label={`更改${task.title}的状态`}
                       disabled={busyTaskId === task.id}
@@ -587,7 +588,12 @@ function TaskDetailDrawer({
             </label>
             <label className="field">
               <span>当前状态</span>
-              <select value={status} onChange={(event) => handleStatusChange(event.target.value as TaskStatus)}>
+              <select
+                className="status-tone"
+                data-status={status}
+                value={status}
+                onChange={(event) => handleStatusChange(event.target.value as TaskStatus)}
+              >
                 {TASK_STATUSES.map((item) => (
                   <option key={item} value={item}>
                     {statusLabel(item)}
