@@ -4,7 +4,7 @@
 截图：
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/68edfdac-0de9-44b9-a0b2-fe9763e10915" />
 暗色是使用了《Dark Reader》插件的效果
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/a9ad9c59-e82c-49f5-9fea-7deece89bc42" />
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/acfee2dd-ee9a-4e60-b9de-405c45197004" />
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/8256c0a7-4a69-4c2a-b377-94008f861d75" />
 
 
