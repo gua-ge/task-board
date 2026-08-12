@@ -1,6 +1,12 @@
 # 任务看板
 
 一个面向个人使用的轻量任务看板。需求、BUG、客服三个工作分区始终在同一个页面中展示，方便快速查看未完成事项，并通过任务详情记录处理过程和解决方案。
+截图：
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/68edfdac-0de9-44b9-a0b2-fe9763e10915" />
+暗色是使用了《Dark Reader》插件的效果
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/21dc0912-790c-4e1e-a0a9-5ae8b73d8efe" />
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/8256c0a7-4a69-4c2a-b377-94008f861d75" />
+
 
 ## 功能
 
