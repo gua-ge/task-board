@@ -4,7 +4,9 @@ import {
   type ClipboardEvent,
   type FormEvent,
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   useTransition,
 } from "react";
@@ -30,6 +32,7 @@ import {
   type Task,
   type TaskCategory,
   type TaskGroup,
+  type TaskImage,
   type TaskStatus,
 } from "@/lib/types";
 
@@ -428,8 +431,42 @@ function TaskDetailDrawer({
   const [newSupportAgentName, setNewSupportAgentName] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const [linkTitle, setLinkTitle] = useState("");
+  const [previewImage, setPreviewImage] = useState<TaskImage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const previewTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const previewImageIndex = previewImage && task
+    ? task.images.findIndex((image) => image.id === previewImage.id)
+    : -1;
+  const canShowPreviousImage = previewImageIndex > 0;
+  const canShowNextImage = Boolean(task && previewImageIndex >= 0 && previewImageIndex < task.images.length - 1);
+
+  const closeImagePreview = useCallback(() => {
+    setPreviewImage(null);
+    requestAnimationFrame(() => previewTriggerRef.current?.focus());
+  }, []);
+
+  useEffect(() => {
+    if (!previewImage) {
+      return;
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeImagePreview();
+      }
+      if (event.key === "ArrowLeft" && canShowPreviousImage && task) {
+        event.preventDefault();
+        setPreviewImage(task.images[previewImageIndex - 1]);
+      }
+      if (event.key === "ArrowRight" && canShowNextImage && task) {
+        event.preventDefault();
+        setPreviewImage(task.images[previewImageIndex + 1]);
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [canShowNextImage, canShowPreviousImage, closeImagePreview, previewImage, previewImageIndex, task]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -551,8 +588,22 @@ function TaskDetailDrawer({
 
   return (
     <div className="drawer-layer" role="presentation">
-      <button className="drawer-backdrop" type="button" aria-label="关闭任务详情" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-heading">
+      <button
+        className="drawer-backdrop"
+        type="button"
+        aria-label="关闭任务详情"
+        aria-hidden={previewImage ? true : undefined}
+        disabled={Boolean(previewImage)}
+        onClick={onClose}
+      />
+      <aside
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="drawer-heading"
+        aria-hidden={previewImage ? true : undefined}
+        inert={previewImage ? true : undefined}
+      >
         <div className="drawer-header">
           <div>
             <span className="eyebrow eyebrow-dark">{isNew ? "NEW TASK" : "TASK DETAIL"}</span>
@@ -707,8 +758,18 @@ function TaskDetailDrawer({
                   <div className="image-grid">
                     {task.images.map((image) => (
                       <figure className="image-attachment" key={image.id}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={image.url} alt={image.fileName} />
+                        <button
+                          className="image-preview-trigger"
+                          type="button"
+                          aria-label={`查看图片${image.fileName}`}
+                          onClick={(event) => {
+                            previewTriggerRef.current = event.currentTarget;
+                            setPreviewImage(image);
+                          }}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={image.url} alt="" />
+                        </button>
                         <figcaption>
                           <span>{formatBytes(image.sizeBytes)}</span>
                           <button type="button" onClick={() => handleRemoveImage(image.id)} aria-label={`删除${image.fileName}`}>
@@ -775,6 +836,68 @@ function TaskDetailDrawer({
           </div>
         </form>
       </aside>
+
+      {previewImage ? (
+        <div className="image-preview-layer" role="presentation">
+          <button
+            className="image-preview-backdrop"
+            type="button"
+            aria-label="关闭图片预览"
+            onClick={closeImagePreview}
+          />
+          <div
+            className="image-preview-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="image-preview-title"
+          >
+            <div className="image-preview-header">
+              <div>
+                <h3 id="image-preview-title">{previewImage.fileName}</h3>
+                <span aria-live="polite">
+                  {formatBytes(previewImage.sizeBytes)}
+                  {task && task.images.length > 1 ? ` · ${previewImageIndex + 1} / ${task.images.length}` : ""}
+                </span>
+              </div>
+              <button
+                className="image-preview-close"
+                type="button"
+                onClick={closeImagePreview}
+                aria-label="关闭图片预览"
+                autoFocus
+              >
+                ×
+              </button>
+            </div>
+            <div className={`image-preview-stage${task && task.images.length > 1 ? " image-preview-stage-multiple" : ""}`}>
+              {task && task.images.length > 1 ? (
+                <button
+                  className="image-preview-nav image-preview-nav-previous"
+                  type="button"
+                  onClick={() => setPreviewImage(task.images[previewImageIndex - 1])}
+                  aria-label="查看上一张图片"
+                  disabled={!canShowPreviousImage}
+                >
+                  ‹
+                </button>
+              ) : null}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img className="image-preview-full" src={previewImage.url} alt={previewImage.fileName} />
+              {task && task.images.length > 1 ? (
+                <button
+                  className="image-preview-nav image-preview-nav-next"
+                  type="button"
+                  onClick={() => setPreviewImage(task.images[previewImageIndex + 1])}
+                  aria-label="查看下一张图片"
+                  disabled={!canShowNextImage}
+                >
+                  ›
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
