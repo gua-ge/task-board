@@ -177,6 +177,11 @@ textarea:focus-visible,
   background: transparent;
   font-size: 12px;
   font-weight: 600;
+  user-select: none;
+}
+
+.segmented-control button span {
+  pointer-events: none;
 }
 
 .segmented-control button.is-active {

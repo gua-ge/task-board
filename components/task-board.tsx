@@ -245,7 +245,7 @@ export default function TaskBoard({ initialGroups, initialSupportAgents }: TaskB
                 aria-selected={view === "open"}
                 onClick={() => switchView("open")}
               >
-                未完成
+                <span>未完成</span>
               </button>
               <button
                 className={view === "completed" ? "is-active" : ""}
@@ -254,7 +254,7 @@ export default function TaskBoard({ initialGroups, initialSupportAgents }: TaskB
                 aria-selected={view === "completed"}
                 onClick={() => switchView("completed")}
               >
-                已完成
+                <span>已完成</span>
               </button>
             </div>
             <span className="masthead-count" aria-live="polite">
