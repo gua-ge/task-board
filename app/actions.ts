@@ -6,6 +6,7 @@ import {
   addTaskLinkRecord,
   createSupportAgentRecord,
   createTaskRecord,
+  deleteTaskRecords,
   deleteTaskImageRecord,
   getTask,
   insertTaskImage,
@@ -24,6 +25,7 @@ import type {
   CreateSupportAgentInput,
   CreateTaskInput,
   CreateTaskLinkInput,
+  DeleteTasksResult,
   Task,
   TaskGroup,
   TaskImage,
@@ -93,4 +95,12 @@ export async function removeTaskImage(imageId: string): Promise<void> {
   const storagePath = deleteTaskImageRecord(imageId);
   await removeImage(storagePath);
   revalidatePath("/");
+}
+
+export async function deleteTasks(taskIds: string[]): Promise<DeleteTasksResult> {
+  const { deletedCount, storagePaths } = deleteTaskRecords(taskIds);
+  const cleanupResults = await Promise.allSettled(storagePaths.map((storagePath) => removeImage(storagePath)));
+  const failedImageCount = cleanupResults.filter((result) => result.status === "rejected").length;
+  revalidatePath("/");
+  return { deletedCount, failedImageCount };
 }

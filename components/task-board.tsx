@@ -14,6 +14,7 @@ import {
   addTaskLink,
   createSupportAgent,
   createTask,
+  deleteTasks,
   listTasks,
   removeTaskImage,
   updateTask,
@@ -143,6 +144,9 @@ export default function TaskBoard({ initialGroups, initialSupportAgents }: TaskB
   const [newTaskCategory, setNewTaskCategory] = useState<TaskCategory>("requirement");
   const [isLoading, setIsLoading] = useState(false);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
+  const [selectionCategory, setSelectionCategory] = useState<TaskCategory | null>(null);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() => new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const selectedTask = useMemo(
@@ -167,13 +171,20 @@ export default function TaskBoard({ initialGroups, initialSupportAgents }: TaskB
     [completedFilter, view],
   );
 
+  function exitSelectionMode() {
+    setSelectionCategory(null);
+    setSelectedTaskIds(new Set());
+  }
+
   function switchView(nextView: BoardView) {
+    exitSelectionMode();
     setView(nextView);
     setSelectedTaskId(null);
     void refresh(nextView, completedFilter);
   }
 
   function handleCompletedFilterChange(preset: CompletedTaskFilterPreset) {
+    exitSelectionMode();
     setNotice(null);
     if (preset === "custom") {
       setCompletedFilter({ preset });
@@ -190,15 +201,79 @@ export default function TaskBoard({ initialGroups, initialSupportAgents }: TaskB
       setNotice("请选择有效的完成日期范围");
       return;
     }
+    exitSelectionMode();
     setCompletedFilter(nextFilter);
     setNotice(null);
     void refresh("completed", nextFilter);
   }
 
   function openNewTask(category: TaskCategory) {
+    exitSelectionMode();
     setNewTaskCategory(category);
     setSelectedTaskId("new");
     setNotice(null);
+  }
+
+  function enterSelectionMode(category: TaskCategory) {
+    setSelectionCategory(category);
+    setSelectedTaskIds(new Set());
+    setSelectedTaskId(null);
+    setNotice(null);
+  }
+
+  function toggleTaskSelection(taskId: string) {
+    setSelectedTaskIds((current) => {
+      const next = new Set(current);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  }
+
+  function toggleAllTasks(tasks: Task[]) {
+    const taskIds = tasks.map((task) => task.id);
+    const allSelected = taskIds.every((id) => selectedTaskIds.has(id));
+    setSelectedTaskIds(allSelected ? new Set() : new Set(taskIds));
+  }
+
+  async function handleDeleteSelected(tasks: Task[]) {
+    const taskIds = tasks.map((task) => task.id).filter((id) => selectedTaskIds.has(id));
+    if (taskIds.length === 0) {
+      return;
+    }
+    const confirmed = window.confirm(
+      `永久删除已选择的 ${taskIds.length} 个任务？\n\n任务详情、文档链接和图片附件将一并删除，此操作无法撤销。`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsDeleting(true);
+    setNotice(null);
+    try {
+      const result = await deleteTasks(taskIds);
+      exitSelectionMode();
+      await refresh();
+      if (result.deletedCount === 0) {
+        setNotice("所选任务已不存在");
+      } else if (result.failedImageCount > 0) {
+        setNotice(`已删除 ${result.deletedCount} 个任务，但有 ${result.failedImageCount} 个图片文件未能清理`);
+      } else {
+        setNotice(`已删除 ${result.deletedCount} 个任务`);
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "删除任务失败");
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
+  function openTask(taskId: string) {
+    exitSelectionMode();
+    setSelectedTaskId(taskId);
   }
 
   async function handleStatusChange(task: Task, status: TaskStatus) {
@@ -281,14 +356,20 @@ export default function TaskBoard({ initialGroups, initialSupportAgents }: TaskB
                     type="date"
                     value={customFrom}
                     aria-label="完成时间开始日期"
-                    onChange={(event) => setCustomFrom(event.target.value)}
+                    onChange={(event) => {
+                      exitSelectionMode();
+                      setCustomFrom(event.target.value);
+                    }}
                   />
                   <span aria-hidden="true">至</span>
                   <input
                     type="date"
                     value={customTo}
                     aria-label="完成时间结束日期"
-                    onChange={(event) => setCustomTo(event.target.value)}
+                    onChange={(event) => {
+                      exitSelectionMode();
+                      setCustomTo(event.target.value);
+                    }}
                   />
                   <button type="button" onClick={applyCustomFilter} disabled={isLoading}>
                     应用
@@ -301,89 +382,162 @@ export default function TaskBoard({ initialGroups, initialSupportAgents }: TaskB
       </header>
 
       <section className="board-grid" aria-label="任务分类看板">
-        {groups.map((group) => (
-          <section
-            className={`category-panel category-panel--${CATEGORY_META[group.category].surface}`}
-            key={group.category}
-            aria-labelledby={`${group.category}-heading`}
-          >
-            <div className="category-heading">
-              <h2 id={`${group.category}-heading`}>
-                {group.label}
-                <span className="category-count" aria-label={`${group.tasks.length} 个任务`}>
-                  {group.tasks.length}
-                </span>
-              </h2>
-              <button
-                className="icon-button"
-                type="button"
-                aria-label={`在${group.label}中新建任务`}
-                onClick={() => openNewTask(group.category)}
-              >
-                +
-              </button>
-            </div>
+        {groups.map((group) => {
+          const isSelecting = selectionCategory === group.category;
+          const selectedCount = group.tasks.filter((task) => selectedTaskIds.has(task.id)).length;
+          const allSelected = group.tasks.length > 0 && selectedCount === group.tasks.length;
 
-            <div className="task-list">
-              {group.tasks.length === 0 ? (
-                <div className="empty-state">
-                  <span className="empty-state-dot" aria-hidden="true" />
-                  <strong>{view === "open" ? "这里很安静" : "还没有完成记录"}</strong>
-                  <span>{view === "open" ? "把下一件要做的事放进来。" : "完成的任务会留在这里。"}</span>
-                </div>
-              ) : (
-                group.tasks.map((task) => (
-                  <article
-                    className="task-card"
-                    key={task.id}
-                    tabIndex={0}
-                    role="button"
-                    onClick={() => setSelectedTaskId(task.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        setSelectedTaskId(task.id);
-                      }
-                    }}
-                    aria-label={`打开任务：${task.title}${task.supportAgent ? `，客服：${task.supportAgent.name}` : ""}`}
-                  >
-                    <h3 title={task.title}>{task.title}</h3>
-                    <div className="task-card-info">
-                      {task.supportAgent ? (
-                        <span className="task-agent" title={`客服：${task.supportAgent.name}`}>
-                          <span className="task-agent-prefix">客服 · </span>
-                          {task.supportAgent.name}
-                        </span>
-                      ) : null}
-                      <time dateTime={task.status === "done" && task.completedAt ? task.completedAt : task.updatedAt}>
-                        {formatDate(task.status === "done" && task.completedAt ? task.completedAt : task.updatedAt)}
-                      </time>
-                    </div>
-                    <select
-                      className="card-status-select status-tone"
-                      data-status={task.status}
-                      value={task.status}
-                      aria-label={`更改${task.title}的状态`}
-                      disabled={busyTaskId === task.id}
-                      onClick={(event) => event.stopPropagation()}
-                      onKeyDown={(event) => event.stopPropagation()}
-                      onChange={(event) => {
-                        event.stopPropagation();
-                        void handleStatusChange(task, event.target.value as TaskStatus);
-                      }}
+          return (
+            <section
+              className={`category-panel category-panel--${CATEGORY_META[group.category].surface}${isSelecting ? " is-selecting" : ""}`}
+              key={group.category}
+              aria-labelledby={`${group.category}-heading`}
+            >
+              <div className="category-heading">
+                <h2 id={`${group.category}-heading`}>
+                  {group.label}
+                  <span className="category-count" aria-label={`${group.tasks.length} 个任务`}>
+                    {group.tasks.length}
+                  </span>
+                </h2>
+                {!isSelecting ? (
+                  <div className="category-actions">
+                    <button
+                      className="icon-button delete-mode-button"
+                      type="button"
+                      aria-label={`批量删除${group.label}任务`}
+                      disabled={group.tasks.length === 0 || isDeleting}
+                      onClick={() => enterSelectionMode(group.category)}
                     >
-                      {TASK_STATUSES.map((status) => (
-                        <option key={status} value={status}>
-                          {statusLabel(status)}
-                        </option>
-                      ))}
-                    </select>
-                  </article>
-                ))
-              )}
-            </div>
-          </section>
-        ))}
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13" />
+                      </svg>
+                    </button>
+                    <button
+                      className="icon-button"
+                      type="button"
+                      aria-label={`在${group.label}中新建任务`}
+                      disabled={isDeleting}
+                      onClick={() => openNewTask(group.category)}
+                    >
+                      +
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              {isSelecting ? (
+                <div className="selection-toolbar" aria-label={`${group.label}任务批量操作`}>
+                  <div className="selection-summary">
+                    <button type="button" disabled={isDeleting} onClick={() => toggleAllTasks(group.tasks)}>
+                      {allSelected ? "取消全选" : "全选"}
+                    </button>
+                    <span aria-live="polite">已选 {selectedCount} 项</span>
+                  </div>
+                  <div className="selection-actions">
+                    <button type="button" disabled={isDeleting} onClick={exitSelectionMode}>
+                      取消
+                    </button>
+                    <button
+                      className="delete-selected-button"
+                      type="button"
+                      disabled={selectedCount === 0 || isDeleting}
+                      onClick={() => void handleDeleteSelected(group.tasks)}
+                    >
+                      {isDeleting ? "删除中…" : `删除 ${selectedCount} 项`}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="task-list">
+                {group.tasks.length === 0 ? (
+                  <div className="empty-state">
+                    <span className="empty-state-dot" aria-hidden="true" />
+                    <strong>{view === "open" ? "这里很安静" : "还没有完成记录"}</strong>
+                    <span>{view === "open" ? "把下一件要做的事放进来。" : "完成的任务会留在这里。"}</span>
+                  </div>
+                ) : (
+                  group.tasks.map((task) => {
+                    const isSelected = selectedTaskIds.has(task.id);
+                    return (
+                      <article
+                        className={`task-card${isSelecting ? " is-selecting" : ""}${isSelected ? " is-selected" : ""}`}
+                        key={task.id}
+                        tabIndex={0}
+                        role={isSelecting ? "checkbox" : "button"}
+                        aria-checked={isSelecting ? isSelected : undefined}
+                        aria-disabled={isSelecting && isDeleting ? true : undefined}
+                        onClick={() => {
+                          if (isDeleting) {
+                            return;
+                          }
+                          if (isSelecting) {
+                            toggleTaskSelection(task.id);
+                          } else {
+                            openTask(task.id);
+                          }
+                        }}
+                        onKeyDown={(event) => {
+                          if ((event.key === "Enter" || event.key === " ") && !isDeleting) {
+                            event.preventDefault();
+                            if (isSelecting) {
+                              toggleTaskSelection(task.id);
+                            } else {
+                              openTask(task.id);
+                            }
+                          }
+                        }}
+                        aria-label={isSelecting
+                          ? `${isSelected ? "取消选择" : "选择"}任务：${task.title}`
+                          : `打开任务：${task.title}${task.supportAgent ? `，客服：${task.supportAgent.name}` : ""}`}
+                      >
+                        {isSelecting ? (
+                          <span className="selection-check" aria-hidden="true">
+                            {isSelected ? "✓" : ""}
+                          </span>
+                        ) : null}
+                        <h3 title={task.title}>{task.title}</h3>
+                        <div className="task-card-info">
+                          {task.supportAgent ? (
+                            <span className="task-agent" title={`客服：${task.supportAgent.name}`}>
+                              <span className="task-agent-prefix">客服 · </span>
+                              {task.supportAgent.name}
+                            </span>
+                          ) : null}
+                          <time dateTime={task.status === "done" && task.completedAt ? task.completedAt : task.updatedAt}>
+                            {formatDate(task.status === "done" && task.completedAt ? task.completedAt : task.updatedAt)}
+                          </time>
+                        </div>
+                        {!isSelecting ? (
+                          <select
+                            className="card-status-select status-tone"
+                            data-status={task.status}
+                            value={task.status}
+                            aria-label={`更改${task.title}的状态`}
+                            disabled={busyTaskId === task.id}
+                            onClick={(event) => event.stopPropagation()}
+                            onKeyDown={(event) => event.stopPropagation()}
+                            onChange={(event) => {
+                              event.stopPropagation();
+                              void handleStatusChange(task, event.target.value as TaskStatus);
+                            }}
+                          >
+                            {TASK_STATUSES.map((status) => (
+                              <option key={status} value={status}>
+                                {statusLabel(status)}
+                              </option>
+                            ))}
+                          </select>
+                        ) : null}
+                      </article>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+          );
+        })}
       </section>
 
       {notice ? (

@@ -112,6 +112,50 @@ test("stores support agents, assignments, and task solutions", async () => {
   );
 });
 
+test("bulk deletes tasks and cascades links and image records", async () => {
+  const {
+    addTaskLinkRecord,
+    createTaskRecord,
+    deleteTaskRecords,
+    getTask,
+    insertTaskImage,
+  } = await getDatabaseModule();
+  const first = createTaskRecord({ title: "批量删除一", category: "requirement" });
+  const second = createTaskRecord({ title: "批量删除二", category: "bug" });
+  const untouched = createTaskRecord({ title: "保留任务", category: "support" });
+  addTaskLinkRecord(first.id, { url: "https://example.com/delete", title: "待删除链接" });
+  insertTaskImage({
+    id: "delete-image-one",
+    taskId: first.id,
+    fileName: "one.png",
+    mimeType: "image/png",
+    sizeBytes: 128,
+    storagePath: "/tmp/delete-image-one.png",
+  });
+  insertTaskImage({
+    id: "delete-image-two",
+    taskId: second.id,
+    fileName: "two.png",
+    mimeType: "image/png",
+    sizeBytes: 256,
+    storagePath: "/tmp/delete-image-two.png",
+  });
+
+  const result = deleteTaskRecords([first.id, first.id, "missing-task", second.id]);
+  assert.equal(result.deletedCount, 2);
+  assert.deepEqual(result.storagePaths.sort(), ["/tmp/delete-image-one.png", "/tmp/delete-image-two.png"]);
+  assert.throws(() => getTask(first.id), /任务不存在/);
+  assert.throws(() => getTask(second.id), /任务不存在/);
+  assert.equal(getTask(untouched.id).title, "保留任务");
+
+  const database = new DatabaseSync(testDatabasePath);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM task_links WHERE task_id = ?").get(first.id)?.count, 0);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM task_images WHERE task_id IN (?, ?)").get(first.id, second.id)?.count, 0);
+  database.close();
+  assert.throws(() => deleteTaskRecords([]), /请选择要删除的任务/);
+  assert.throws(() => deleteTaskRecords([" "]), /任务 ID 无效/);
+});
+
 test("records task times and updates completion timestamps with status", async () => {
   const { createTaskRecord, updateTaskRecord } = await getDatabaseModule();
   const task = createTaskRecord({ title: "时间记录测试", category: "requirement" });

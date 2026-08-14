@@ -80,6 +80,11 @@ export type CreateSupportAgentInput = {
   name: string;
 };
 
+export type DeleteTasksResult = {
+  deletedCount: number;
+  failedImageCount: number;
+};
+
 export const CATEGORY_META: Record<
   TaskCategory,
   { label: string; description: string; surface: string }

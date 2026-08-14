@@ -406,3 +406,38 @@ export function deleteTaskImageRecord(id: string): string {
   getDatabase().prepare("DELETE FROM task_images WHERE id = ?").run(id);
   return image.storage_path;
 }
+
+export function deleteTaskRecords(taskIds: string[]): { deletedCount: number; storagePaths: string[] } {
+  if (!Array.isArray(taskIds) || taskIds.length === 0) {
+    throw new Error("请选择要删除的任务");
+  }
+  const ids = [...new Set(taskIds.map((id) => {
+    if (typeof id !== "string" || !id.trim()) {
+      throw new Error("任务 ID 无效");
+    }
+    return id.trim();
+  }))];
+  const database = getDatabase();
+  const selectImages = database.prepare("SELECT storage_path FROM task_images WHERE task_id = ?");
+  const deleteTask = database.prepare("DELETE FROM tasks WHERE id = ?");
+  const storagePaths: string[] = [];
+  let deletedCount = 0;
+
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    for (const id of ids) {
+      const imageRows = selectImages.all(id) as Array<{ storage_path: string }>;
+      const result = deleteTask.run(id);
+      if (Number(result.changes) > 0) {
+        storagePaths.push(...imageRows.map((image) => image.storage_path));
+        deletedCount += Number(result.changes);
+      }
+    }
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+
+  return { deletedCount, storagePaths };
+}

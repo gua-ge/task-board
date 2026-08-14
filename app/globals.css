@@ -275,6 +275,18 @@ textarea:focus-visible,
   padding-bottom: 16px;
 }
 
+.category-actions,
+.selection-toolbar,
+.selection-summary,
+.selection-actions {
+  display: flex;
+  align-items: center;
+}
+
+.category-actions {
+  gap: 8px;
+}
+
 .category-heading h2 {
   display: flex;
   align-items: center;
@@ -323,9 +335,81 @@ textarea:focus-visible,
   color: var(--ink);
 }
 
+.delete-mode-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+  pointer-events: none;
+}
+
+.delete-mode-button:hover:not(:disabled) {
+  border-color: #e6c5c2;
+  color: #a12b24;
+  background: #f9eeee;
+}
+
+.delete-mode-button:disabled {
+  cursor: default;
+}
+
 .icon-button:hover,
 .close-button:hover {
   background: rgba(0, 102, 204, 0.09);
+}
+
+.selection-toolbar {
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: -4px 0 12px;
+  padding: 8px;
+  border: 1px solid rgba(29, 29, 31, 0.1);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.selection-summary,
+.selection-actions {
+  gap: 7px;
+}
+
+.selection-toolbar button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(29, 29, 31, 0.14);
+  border-radius: var(--radius-pill);
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.selection-toolbar button:active {
+  transform: scale(0.95);
+}
+
+.selection-toolbar button:disabled {
+  cursor: default;
+}
+
+.selection-summary span {
+  color: var(--ink-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.selection-toolbar .delete-selected-button {
+  border-color: #d8a9a5;
+  color: #fff;
+  background: #a12b24;
+}
+
+.selection-toolbar .delete-selected-button:hover:not(:disabled) {
+  background: #8f241e;
 }
 
 .task-list {
@@ -356,6 +440,39 @@ textarea:focus-visible,
 .task-card:hover {
   border-color: rgba(0, 102, 204, 0.55);
   transform: translateY(-2px);
+}
+
+.task-card.is-selecting {
+  grid-template-columns: 20px minmax(0, 1fr) max-content;
+}
+
+.task-card.is-selecting:hover {
+  border-color: #d8a9a5;
+  transform: none;
+}
+
+.task-card.is-selected {
+  border-color: #cf8f89;
+  background: #fcf3f2;
+}
+
+.selection-check {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid #b8b8bd;
+  border-radius: 6px;
+  color: #fff;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.task-card.is-selected .selection-check {
+  border-color: #a12b24;
+  background: #a12b24;
 }
 
 .section-heading,
