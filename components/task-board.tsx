@@ -5,11 +5,13 @@ import {
   type FormEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useTransition,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   addTaskLink,
   createSupportAgent,
@@ -196,11 +198,87 @@ export default function TaskBoard({ initialGroups, initialSupportAgents, initial
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() => new Set());
   const [isDeleting, setIsDeleting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [tagTooltip, setTagTooltip] = useState<{ name: string; anchor: HTMLElement } | null>(null);
+  const [tagTooltipPosition, setTagTooltipPosition] = useState<{
+    left: number;
+    top: number;
+    placement: "above" | "below";
+  } | null>(null);
+  const tagTooltipRef = useRef<HTMLDivElement | null>(null);
+  const tagTooltipTimerRef = useRef<number | null>(null);
 
   const selectedTask = useMemo(
     () => groups.flatMap((group) => group.tasks).find((task) => task.id === selectedTaskId) ?? null,
     [groups, selectedTaskId],
   );
+
+  const hideTagTooltip = useCallback(() => {
+    if (tagTooltipTimerRef.current !== null) {
+      window.clearTimeout(tagTooltipTimerRef.current);
+      tagTooltipTimerRef.current = null;
+    }
+    setTagTooltip(null);
+    setTagTooltipPosition(null);
+  }, []);
+
+  const scheduleTagTooltip = useCallback((name: string, anchor: HTMLElement) => {
+    hideTagTooltip();
+    tagTooltipTimerRef.current = window.setTimeout(() => {
+      tagTooltipTimerRef.current = null;
+      if (anchor.isConnected) {
+        setTagTooltip({ name, anchor });
+      }
+    }, 100);
+  }, [hideTagTooltip]);
+
+  useLayoutEffect(() => {
+    const tooltip = tagTooltipRef.current;
+    if (!tagTooltip || !tooltip) {
+      return;
+    }
+
+    const viewportPadding = 16;
+    const anchorGap = 18;
+    const anchorRect = tagTooltip.anchor.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+    const maxLeft = Math.max(viewportPadding, window.innerWidth - viewportPadding - tooltipRect.width);
+    const left = Math.min(
+      Math.max(anchorRect.left + anchorRect.width / 2 - tooltipRect.width / 2, viewportPadding),
+      maxLeft,
+    );
+    const belowTop = anchorRect.bottom + anchorGap;
+    const aboveTop = anchorRect.top - anchorGap - tooltipRect.height;
+    const placement = belowTop + tooltipRect.height <= window.innerHeight - viewportPadding || aboveTop < viewportPadding
+      ? "below"
+      : "above";
+    const preferredTop = placement === "below" ? belowTop : aboveTop;
+    const maxTop = Math.max(viewportPadding, window.innerHeight - viewportPadding - tooltipRect.height);
+
+    setTagTooltipPosition({
+      left,
+      top: Math.min(Math.max(preferredTop, viewportPadding), maxTop),
+      placement,
+    });
+  }, [tagTooltip]);
+
+  useEffect(() => {
+    if (!tagTooltip) {
+      return;
+    }
+
+    window.addEventListener("resize", hideTagTooltip);
+    window.addEventListener("scroll", hideTagTooltip, true);
+    return () => {
+      window.removeEventListener("resize", hideTagTooltip);
+      window.removeEventListener("scroll", hideTagTooltip, true);
+    };
+  }, [hideTagTooltip, tagTooltip]);
+
+  useEffect(() => () => {
+    if (tagTooltipTimerRef.current !== null) {
+      window.clearTimeout(tagTooltipTimerRef.current);
+    }
+  }, []);
 
   const refresh = useCallback(
     async (nextView = view, nextFilter = completedFilter) => {
@@ -554,8 +632,9 @@ export default function TaskBoard({ initialGroups, initialSupportAgents, initial
                                 <span
                                   className="task-tag-mark"
                                   data-tag-color={tag.color}
-                                  title={tag.name}
                                   key={tag.id}
+                                  onMouseEnter={(event) => scheduleTagTooltip(tag.name, event.currentTarget)}
+                                  onMouseLeave={hideTagTooltip}
                                 />
                               ))}
                             </div>
@@ -602,6 +681,22 @@ export default function TaskBoard({ initialGroups, initialSupportAgents, initial
           );
         })}
       </section>
+
+      {tagTooltip ? createPortal(
+        <div
+          ref={tagTooltipRef}
+          className={`task-tag-tooltip${tagTooltipPosition ? " is-visible" : ""}`}
+          data-placement={tagTooltipPosition?.placement ?? "below"}
+          style={tagTooltipPosition ? {
+            left: tagTooltipPosition.left,
+            top: tagTooltipPosition.top,
+          } : undefined}
+          aria-hidden="true"
+        >
+          {tagTooltip.name}
+        </div>,
+        document.body,
+      ) : null}
 
       {notice ? (
         <button className="notice" type="button" onClick={() => setNotice(null)} aria-label="关闭提示">
