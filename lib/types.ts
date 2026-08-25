@@ -4,6 +4,9 @@ export type TaskCategory = (typeof TASK_CATEGORIES)[number];
 export const TASK_STATUSES = ["todo", "in_progress", "done", "blocked"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+export const TASK_TAG_COLORS = ["gray", "blue", "green", "amber", "red", "teal"] as const;
+export type TaskTagColor = (typeof TASK_TAG_COLORS)[number];
+
 export type BoardView = "open" | "completed";
 
 export const COMPLETED_TASK_FILTER_PRESETS = ["week", "month", "all", "custom"] as const;
@@ -35,6 +38,13 @@ export type SupportAgent = {
   createdAt: string;
 };
 
+export type TaskTag = {
+  id: string;
+  name: string;
+  color: TaskTagColor;
+  createdAt: string;
+};
+
 export type Task = {
   id: string;
   title: string;
@@ -43,6 +53,7 @@ export type Task = {
   description: string;
   solution: string;
   supportAgent: SupportAgent | null;
+  tags: TaskTag[];
   links: TaskLink[];
   images: TaskImage[];
   createdAt: string;
@@ -64,11 +75,13 @@ export type CreateTaskInput = {
   description?: string;
   solution?: string;
   supportAgentId?: string | null;
+  tagIds?: string[];
 };
 
 export type UpdateTaskInput = Partial<Pick<Task, "title" | "category" | "status" | "description" | "solution">> & {
   completedAt?: string | null;
   supportAgentId?: string | null;
+  tagIds?: string[];
 };
 
 export type CreateTaskLinkInput = {
@@ -79,6 +92,13 @@ export type CreateTaskLinkInput = {
 export type CreateSupportAgentInput = {
   name: string;
 };
+
+export type CreateTaskTagInput = {
+  name: string;
+  color: TaskTagColor;
+};
+
+export type UpdateTaskTagInput = CreateTaskTagInput;
 
 export type DeleteTasksResult = {
   deletedCount: number;

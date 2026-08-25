@@ -14,10 +14,13 @@ import {
   addTaskLink,
   createSupportAgent,
   createTask,
+  createTaskTag,
   deleteTasks,
+  deleteTaskTag,
   listTasks,
   removeTaskImage,
   updateTask,
+  updateTaskTag,
   uploadTaskImage,
 } from "@/app/actions";
 import {
@@ -26,6 +29,7 @@ import {
   STATUS_META,
   TASK_CATEGORIES,
   TASK_STATUSES,
+  TASK_TAG_COLORS,
   type BoardView,
   type CompletedTaskFilter,
   type CompletedTaskFilterPreset,
@@ -35,21 +39,37 @@ import {
   type TaskGroup,
   type TaskImage,
   type TaskStatus,
+  type TaskTag,
+  type TaskTagColor,
 } from "@/lib/types";
 
 type TaskBoardProps = {
   initialGroups: TaskGroup[];
   initialSupportAgents: SupportAgent[];
+  initialTaskTags: TaskTag[];
 };
 
 type DrawerProps = {
   task: Task | null;
   defaultCategory: TaskCategory;
   supportAgents: SupportAgent[];
+  taskTags: TaskTag[];
   onClose: () => void;
   onRefresh: () => Promise<void>;
   onSaved: (task: Task) => Promise<void>;
   onSupportAgentCreated: (agent: SupportAgent) => void;
+  onTaskTagCreated: (tag: TaskTag) => void;
+  onTaskTagUpdated: (tag: TaskTag) => void;
+  onTaskTagDeleted: (tagId: string) => void;
+};
+
+const TASK_TAG_COLOR_LABELS: Record<TaskTagColor, string> = {
+  gray: "灰色",
+  blue: "蓝色",
+  green: "绿色",
+  amber: "琥珀色",
+  red: "红色",
+  teal: "青色",
 };
 
 function formatDate(value: string): string {
@@ -133,10 +153,38 @@ function isInView(view: BoardView, status: TaskStatus): boolean {
   return view === "completed" ? status === "done" : status !== "done";
 }
 
-export default function TaskBoard({ initialGroups, initialSupportAgents }: TaskBoardProps) {
+function TaskTagColorPicker({
+  value,
+  onChange,
+  label,
+}: {
+  value: TaskTagColor;
+  onChange: (color: TaskTagColor) => void;
+  label: string;
+}) {
+  return (
+    <div className="task-tag-color-picker" role="radiogroup" aria-label={label}>
+      {TASK_TAG_COLORS.map((color) => (
+        <button
+          type="button"
+          role="radio"
+          aria-checked={value === color}
+          aria-label={TASK_TAG_COLOR_LABELS[color]}
+          className={value === color ? "is-selected" : ""}
+          data-tag-color={color}
+          key={color}
+          onClick={() => onChange(color)}
+        />
+      ))}
+    </div>
+  );
+}
+
+export default function TaskBoard({ initialGroups, initialSupportAgents, initialTaskTags }: TaskBoardProps) {
   const [view, setView] = useState<BoardView>("open");
   const [groups, setGroups] = useState(initialGroups);
   const [supportAgents, setSupportAgents] = useState(initialSupportAgents);
+  const [taskTags, setTaskTags] = useState(initialTaskTags);
   const [completedFilter, setCompletedFilter] = useState<CompletedTaskFilter>({ preset: "week" });
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -488,16 +536,31 @@ export default function TaskBoard({ initialGroups, initialSupportAgents }: TaskB
                             }
                           }
                         }}
-                        aria-label={isSelecting
+                        aria-label={`${isSelecting
                           ? `${isSelected ? "取消选择" : "选择"}任务：${task.title}`
-                          : `打开任务：${task.title}${task.supportAgent ? `，客服：${task.supportAgent.name}` : ""}`}
+                          : `打开任务：${task.title}${task.supportAgent ? `，客服：${task.supportAgent.name}` : ""}`
+                        }${task.tags.length > 0 ? `，标签：${task.tags.map((tag) => tag.name).join("、")}` : ""}`}
                       >
                         {isSelecting ? (
                           <span className="selection-check" aria-hidden="true">
                             {isSelected ? "✓" : ""}
                           </span>
                         ) : null}
-                        <h3 title={task.title}>{task.title}</h3>
+                        <div className="task-card-main">
+                          <h3 title={task.title}>{task.title}</h3>
+                          {task.tags.length > 0 ? (
+                            <div className="task-tag-strip" aria-hidden="true">
+                              {task.tags.map((tag) => (
+                                <span
+                                  className="task-tag-mark"
+                                  data-tag-color={tag.color}
+                                  title={tag.name}
+                                  key={tag.id}
+                                />
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
                         <div className="task-card-info">
                           {task.supportAgent ? (
                             <span className="task-agent" title={`客服：${task.supportAgent.name}`}>
@@ -553,12 +616,16 @@ export default function TaskBoard({ initialGroups, initialSupportAgents }: TaskB
           task={selectedTaskId === "new" ? null : selectedTask}
           defaultCategory={selectedTask?.category ?? newTaskCategory}
           supportAgents={supportAgents}
+          taskTags={taskTags}
           onClose={() => setSelectedTaskId(null)}
           onRefresh={async () => {
             await refresh();
           }}
           onSaved={handleSaved}
           onSupportAgentCreated={(agent) => setSupportAgents((current) => [...current, agent])}
+          onTaskTagCreated={(tag) => setTaskTags((current) => [...current, tag])}
+          onTaskTagUpdated={(tag) => setTaskTags((current) => current.map((item) => item.id === tag.id ? tag : item))}
+          onTaskTagDeleted={(tagId) => setTaskTags((current) => current.filter((tag) => tag.id !== tagId))}
         />
       ) : null}
     </main>
@@ -569,10 +636,14 @@ function TaskDetailDrawer({
   task,
   defaultCategory,
   supportAgents,
+  taskTags,
   onClose,
   onRefresh,
   onSaved,
   onSupportAgentCreated,
+  onTaskTagCreated,
+  onTaskTagUpdated,
+  onTaskTagDeleted,
 }: DrawerProps) {
   const isNew = !task;
   const [title, setTitle] = useState(task?.title ?? "");
@@ -582,6 +653,12 @@ function TaskDetailDrawer({
   const [description, setDescription] = useState(task?.description ?? "");
   const [solution, setSolution] = useState(task?.solution ?? "");
   const [supportAgentId, setSupportAgentId] = useState(task?.supportAgent?.id ?? "");
+  const [selectedTagIds, setSelectedTagIds] = useState(() => new Set(task?.tags.map((tag) => tag.id) ?? []));
+  const [newTagName, setNewTagName] = useState("");
+  const [newTagColor, setNewTagColor] = useState<TaskTagColor>("gray");
+  const [editingTagId, setEditingTagId] = useState<string | null>(null);
+  const [editingTagName, setEditingTagName] = useState("");
+  const [editingTagColor, setEditingTagColor] = useState<TaskTagColor>("gray");
   const [newSupportAgentName, setNewSupportAgentName] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const [linkTitle, setLinkTitle] = useState("");
@@ -640,6 +717,7 @@ function TaskDetailDrawer({
               description,
               solution,
               supportAgentId: category === "requirement" ? null : supportAgentId || null,
+              tagIds: [...selectedTagIds],
               completedAt: nextCompletedAt,
             })
           : await createTask({
@@ -649,6 +727,7 @@ function TaskDetailDrawer({
               description,
               solution,
               supportAgentId: category === "requirement" ? null : supportAgentId || null,
+              tagIds: [...selectedTagIds],
             });
         await onSaved(saved);
       } catch (saveError) {
@@ -706,6 +785,85 @@ function TaskDetailDrawer({
         setNewSupportAgentName("");
       } catch (agentError) {
         setError(agentError instanceof Error ? agentError.message : "添加客服失败");
+      }
+    });
+  }
+
+  function toggleTaskTag(tagId: string) {
+    setSelectedTagIds((current) => {
+      const next = new Set(current);
+      if (next.has(tagId)) {
+        next.delete(tagId);
+      } else {
+        next.add(tagId);
+      }
+      return next;
+    });
+  }
+
+  function handleCreateTaskTag() {
+    setError(null);
+    startTransition(async () => {
+      try {
+        const tag = await createTaskTag({ name: newTagName, color: newTagColor });
+        onTaskTagCreated(tag);
+        setSelectedTagIds((current) => new Set(current).add(tag.id));
+        setNewTagName("");
+        setNewTagColor("gray");
+      } catch (tagError) {
+        setError(tagError instanceof Error ? tagError.message : "添加标签失败");
+      }
+    });
+  }
+
+  function beginEditingTaskTag(tag: TaskTag) {
+    setEditingTagId(tag.id);
+    setEditingTagName(tag.name);
+    setEditingTagColor(tag.color);
+    setError(null);
+  }
+
+  function handleUpdateTaskTag() {
+    if (!editingTagId) {
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      try {
+        const tag = await updateTaskTag(editingTagId, {
+          name: editingTagName,
+          color: editingTagColor,
+        });
+        onTaskTagUpdated(tag);
+        setEditingTagId(null);
+        await onRefresh();
+      } catch (tagError) {
+        setError(tagError instanceof Error ? tagError.message : "更新标签失败");
+      }
+    });
+  }
+
+  function handleDeleteTaskTag(tag: TaskTag) {
+    const confirmed = window.confirm(`删除标签“${tag.name}”？\n\n该标签将从所有任务中移除，任务不会被删除。`);
+    if (!confirmed) {
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      try {
+        await deleteTaskTag(tag.id);
+        onTaskTagDeleted(tag.id);
+        setSelectedTagIds((current) => {
+          const next = new Set(current);
+          next.delete(tag.id);
+          return next;
+        });
+        if (editingTagId === tag.id) {
+          setEditingTagId(null);
+        }
+        await onRefresh();
+      } catch (tagError) {
+        setError(tagError instanceof Error ? tagError.message : "删除标签失败");
       }
     });
   }
@@ -850,6 +1008,135 @@ function TaskDetailDrawer({
               </div>
             </div>
           ) : null}
+
+          <section className="task-tag-field" aria-labelledby="task-tag-heading">
+            <div className="task-tag-field-heading">
+              <span id="task-tag-heading">任务标签</span>
+              <span>{selectedTagIds.size} 个已选</span>
+            </div>
+            {taskTags.length > 0 ? (
+              <div className="task-tag-options" role="group" aria-label="选择任务标签">
+                {taskTags.map((tag) => {
+                  const isSelected = selectedTagIds.has(tag.id);
+                  return (
+                    <button
+                      className={`task-tag-option${isSelected ? " is-selected" : ""}`}
+                      type="button"
+                      aria-pressed={isSelected}
+                      key={tag.id}
+                      onClick={() => toggleTaskTag(tag.id)}
+                    >
+                      <span className="task-tag-swatch" data-tag-color={tag.color} aria-hidden="true" />
+                      <span>{tag.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="task-tag-empty">还没有标签，可以在下方创建第一个标签。</p>
+            )}
+
+            <details className="task-tag-manager">
+              <summary>管理标签</summary>
+              <div className="task-tag-manager-body">
+                <div className="task-tag-create-form">
+                  <input
+                    value={newTagName}
+                    maxLength={20}
+                    aria-label="新标签名称"
+                    placeholder="输入标签名称"
+                    onChange={(event) => setNewTagName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        if (newTagName.trim() && !isPending) {
+                          handleCreateTaskTag();
+                        }
+                      }
+                    }}
+                  />
+                  <TaskTagColorPicker
+                    value={newTagColor}
+                    onChange={setNewTagColor}
+                    label="选择新标签颜色"
+                  />
+                  <button
+                    className="task-tag-primary-action"
+                    type="button"
+                    disabled={!newTagName.trim() || isPending}
+                    onClick={handleCreateTaskTag}
+                  >
+                    添加
+                  </button>
+                </div>
+
+                {taskTags.length > 0 ? (
+                  <div className="task-tag-manage-list">
+                    {taskTags.map((tag) => (
+                      <div className="task-tag-manage-row" key={tag.id}>
+                        {editingTagId === tag.id ? (
+                          <div className="task-tag-edit-form">
+                            <input
+                              value={editingTagName}
+                              maxLength={20}
+                              aria-label={`编辑${tag.name}的名称`}
+                              onChange={(event) => setEditingTagName(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  if (editingTagName.trim() && !isPending) {
+                                    handleUpdateTaskTag();
+                                  }
+                                }
+                              }}
+                            />
+                            <TaskTagColorPicker
+                              value={editingTagColor}
+                              onChange={setEditingTagColor}
+                              label={`选择${tag.name}的颜色`}
+                            />
+                            <div className="task-tag-row-actions">
+                              <button type="button" disabled={isPending} onClick={() => setEditingTagId(null)}>
+                                取消
+                              </button>
+                              <button
+                                className="task-tag-primary-action"
+                                type="button"
+                                disabled={!editingTagName.trim() || isPending}
+                                onClick={handleUpdateTaskTag}
+                              >
+                                保存
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="task-tag-manage-name">
+                              <span className="task-tag-swatch" data-tag-color={tag.color} aria-hidden="true" />
+                              <span>{tag.name}</span>
+                            </span>
+                            <div className="task-tag-row-actions">
+                              <button type="button" disabled={isPending} onClick={() => beginEditingTaskTag(tag)}>
+                                编辑
+                              </button>
+                              <button
+                                className="task-tag-delete-action"
+                                type="button"
+                                disabled={isPending}
+                                onClick={() => handleDeleteTaskTag(tag)}
+                              >
+                                删除
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </details>
+          </section>
 
           {task ? (
             <div className="field-grid task-time-grid">

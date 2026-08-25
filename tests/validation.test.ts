@@ -3,9 +3,11 @@ import test from "node:test";
 import {
   assertCategory,
   assertStatus,
+  assertTaskTagColor,
   normalizeCompletedAt,
   normalizeCompletedTaskFilter,
   normalizeSupportAgentName,
+  normalizeTaskTagName,
   normalizeTitle,
   normalizeUrl,
 } from "@/lib/validation";
@@ -27,6 +29,14 @@ test("normalizes support agent names and rejects invalid values", () => {
   assert.equal(normalizeSupportAgentName("  小王  "), "小王");
   assert.throws(() => normalizeSupportAgentName("   "), /客服姓名不能为空/);
   assert.throws(() => normalizeSupportAgentName("a".repeat(41)), /不能超过 40 个字符/);
+});
+
+test("validates task tag names and fixed colors", () => {
+  assert.equal(normalizeTaskTagName("  移动端  "), "移动端");
+  assert.throws(() => normalizeTaskTagName("   "), /标签名称不能为空/);
+  assert.throws(() => normalizeTaskTagName("a".repeat(21)), /不能超过 20 个字符/);
+  assert.doesNotThrow(() => assertTaskTagColor("teal"));
+  assert.throws(() => assertTaskTagColor("purple"), /标签颜色无效/);
 });
 
 test("accepts http links and rejects unsafe protocols", () => {

@@ -2,7 +2,9 @@ import {
   COMPLETED_TASK_FILTER_PRESETS,
   TASK_CATEGORIES,
   TASK_STATUSES,
+  TASK_TAG_COLORS,
   type TaskCategory,
+  type TaskTagColor,
   type TaskStatus,
   type CompletedTaskFilter,
 } from "@/lib/types";
@@ -47,6 +49,26 @@ export function normalizeSupportAgentName(value: string): string {
     throw new Error("客服姓名不能超过 40 个字符");
   }
   return name;
+}
+
+export function normalizeTaskTagName(value: string): string {
+  if (typeof value !== "string") {
+    throw new Error("标签名称无效");
+  }
+  const name = value.trim();
+  if (!name) {
+    throw new Error("标签名称不能为空");
+  }
+  if (name.length > 20) {
+    throw new Error("标签名称不能超过 20 个字符");
+  }
+  return name;
+}
+
+export function assertTaskTagColor(value: string): asserts value is TaskTagColor {
+  if (!TASK_TAG_COLORS.includes(value as TaskTagColor)) {
+    throw new Error("标签颜色无效");
+  }
 }
 
 export function normalizeUrl(value: string): string {

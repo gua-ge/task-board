@@ -10,6 +10,7 @@ import {
   type CreateSupportAgentInput,
   type CreateTaskInput,
   type CreateTaskLinkInput,
+  type CreateTaskTagInput,
   type SupportAgent,
   type Task,
   type TaskCategory,
@@ -17,14 +18,19 @@ import {
   type TaskImage,
   type TaskLink,
   type TaskStatus,
+  type TaskTag,
+  type TaskTagColor,
   type UpdateTaskInput,
+  type UpdateTaskTagInput,
 } from "@/lib/types";
 import {
   assertCategory,
   assertStatus,
+  assertTaskTagColor,
   normalizeCompletedAt,
   normalizeCompletedTaskFilter,
   normalizeSupportAgentName,
+  normalizeTaskTagName,
   normalizeTitle,
   normalizeUrl,
 } from "@/lib/validation";
@@ -64,6 +70,13 @@ type SupportAgentRow = {
   created_at: string;
 };
 
+type TaskTagRow = {
+  id: string;
+  name: string;
+  color: TaskTagColor;
+  created_at: string;
+};
+
 const dataDirectory = process.env.TASK_BOARD_DATA_DIR ?? path.join(process.cwd(), ".data");
 const databasePath = path.join(dataDirectory, "task-board.sqlite");
 
@@ -96,6 +109,21 @@ function getDatabase(): DatabaseSync {
         updated_at TEXT NOT NULL,
         completed_at TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS tags (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+        color TEXT NOT NULL CHECK (color IN ('gray', 'blue', 'green', 'amber', 'red', 'teal')),
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS task_tags (
+        task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+        PRIMARY KEY (task_id, tag_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS task_tags_tag_index ON task_tags (tag_id);
 
       CREATE INDEX IF NOT EXISTS tasks_view_index
         ON tasks (status, category, updated_at DESC);
@@ -154,6 +182,10 @@ function mapSupportAgent(row: SupportAgentRow): SupportAgent {
   return { id: row.id, name: row.name, createdAt: row.created_at };
 }
 
+function mapTaskTag(row: TaskTagRow): TaskTag {
+  return { id: row.id, name: row.name, color: row.color, createdAt: row.created_at };
+}
+
 function getSupportAgentRow(id: string): SupportAgentRow {
   const row = getDatabase()
     .prepare("SELECT id, name, created_at FROM support_agents WHERE id = ?")
@@ -162,6 +194,30 @@ function getSupportAgentRow(id: string): SupportAgentRow {
     throw new Error("客服不存在");
   }
   return row;
+}
+
+function getTaskTagRow(id: string): TaskTagRow {
+  const row = getDatabase()
+    .prepare("SELECT id, name, color, created_at FROM tags WHERE id = ?")
+    .get(id) as TaskTagRow | undefined;
+  if (!row) {
+    throw new Error("标签不存在");
+  }
+  return row;
+}
+
+function normalizeTaskTagIds(values: string[]): string[] {
+  if (!Array.isArray(values)) {
+    throw new Error("任务标签无效");
+  }
+  const ids = [...new Set(values.map((value) => {
+    if (typeof value !== "string" || !value.trim()) {
+      throw new Error("标签 ID 无效");
+    }
+    return value.trim();
+  }))];
+  ids.forEach(getTaskTagRow);
+  return ids;
 }
 
 function normalizeSupportAgentId(category: TaskCategory, value: string | null | undefined): string | null {
@@ -205,6 +261,26 @@ function getTaskImages(id: string): TaskImage[] {
   return rows.map(mapImage);
 }
 
+function getTaskTags(id: string): TaskTag[] {
+  const rows = getDatabase()
+    .prepare(
+      `SELECT tags.id, tags.name, tags.color, tags.created_at
+       FROM task_tags
+       JOIN tags ON tags.id = task_tags.tag_id
+       WHERE task_tags.task_id = ?
+       ORDER BY tags.created_at, tags.rowid`,
+    )
+    .all(id) as TaskTagRow[];
+  return rows.map(mapTaskTag);
+}
+
+function replaceTaskTags(taskId: string, tagIds: string[]): void {
+  const database = getDatabase();
+  database.prepare("DELETE FROM task_tags WHERE task_id = ?").run(taskId);
+  const insert = database.prepare("INSERT INTO task_tags (task_id, tag_id) VALUES (?, ?)");
+  tagIds.forEach((tagId) => insert.run(taskId, tagId));
+}
+
 function mapTask(row: TaskRow): Task {
   return {
     id: row.id,
@@ -214,6 +290,7 @@ function mapTask(row: TaskRow): Task {
     description: row.description,
     solution: row.solution,
     supportAgent: row.support_agent_id ? mapSupportAgent(getSupportAgentRow(row.support_agent_id)) : null,
+    tags: getTaskTags(row.id),
     links: getTaskLinks(row.id),
     images: getTaskImages(row.id),
     createdAt: row.created_at,
@@ -247,6 +324,46 @@ export function createSupportAgentRecord(input: CreateSupportAgentInput): Suppor
     .prepare("INSERT INTO support_agents (id, name, created_at) VALUES (?, ?, ?)")
     .run(id, name, createdAt);
   return { id, name, createdAt };
+}
+
+export function listTaskTagRecords(): TaskTag[] {
+  const rows = getDatabase()
+    .prepare("SELECT id, name, color, created_at FROM tags ORDER BY created_at, rowid")
+    .all() as TaskTagRow[];
+  return rows.map(mapTaskTag);
+}
+
+export function createTaskTagRecord(input: CreateTaskTagInput): TaskTag {
+  const name = normalizeTaskTagName(input.name);
+  assertTaskTagColor(input.color);
+  const existing = getDatabase().prepare("SELECT id FROM tags WHERE name = ? COLLATE NOCASE").get(name);
+  if (existing) {
+    throw new Error("标签已存在");
+  }
+  const tag = { id: randomUUID(), name, color: input.color, createdAt: new Date().toISOString() };
+  getDatabase()
+    .prepare("INSERT INTO tags (id, name, color, created_at) VALUES (?, ?, ?, ?)")
+    .run(tag.id, tag.name, tag.color, tag.createdAt);
+  return tag;
+}
+
+export function updateTaskTagRecord(id: string, input: UpdateTaskTagInput): TaskTag {
+  getTaskTagRow(id);
+  const name = normalizeTaskTagName(input.name);
+  assertTaskTagColor(input.color);
+  const existing = getDatabase()
+    .prepare("SELECT id FROM tags WHERE name = ? COLLATE NOCASE AND id != ?")
+    .get(name, id);
+  if (existing) {
+    throw new Error("标签已存在");
+  }
+  getDatabase().prepare("UPDATE tags SET name = ?, color = ? WHERE id = ?").run(name, input.color, id);
+  return mapTaskTag(getTaskTagRow(id));
+}
+
+export function deleteTaskTagRecord(id: string): void {
+  getTaskTagRow(id);
+  getDatabase().prepare("DELETE FROM tags WHERE id = ?").run(id);
 }
 
 export function listTaskGroups(view: BoardView, filter: CompletedTaskFilter = { preset: "week" }): TaskGroup[] {
@@ -292,26 +409,36 @@ export function createTaskRecord(input: CreateTaskInput): Task {
   const status = input.status ?? "todo";
   assertStatus(status);
   const supportAgentId = normalizeSupportAgentId(input.category, input.supportAgentId);
+  const tagIds = normalizeTaskTagIds(input.tagIds ?? []);
   const now = new Date().toISOString();
   const id = randomUUID();
-  getDatabase()
-    .prepare(
-      `INSERT INTO tasks
-        (id, title, category, status, description, solution, support_agent_id, created_at, updated_at, completed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      id,
-      title,
-      input.category,
-      status,
-      input.description?.trim() ?? "",
-      input.solution?.trim() ?? "",
-      supportAgentId,
-      now,
-      now,
-      status === "done" ? now : null,
-    );
+  const database = getDatabase();
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    database
+      .prepare(
+        `INSERT INTO tasks
+          (id, title, category, status, description, solution, support_agent_id, created_at, updated_at, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        title,
+        input.category,
+        status,
+        input.description?.trim() ?? "",
+        input.solution?.trim() ?? "",
+        supportAgentId,
+        now,
+        now,
+        status === "done" ? now : null,
+      );
+    replaceTaskTags(id, tagIds);
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
   return getTask(id);
 }
 
@@ -328,6 +455,7 @@ export function updateTaskRecord(id: string, input: UpdateTaskInput): Task {
     nextCategory,
     input.supportAgentId === undefined ? existing.support_agent_id : input.supportAgentId,
   );
+  const nextTagIds = input.tagIds === undefined ? undefined : normalizeTaskTagIds(input.tagIds);
   const now = new Date().toISOString();
   const completedAt = nextStatus === "done"
     ? input.completedAt?.trim()
@@ -335,23 +463,34 @@ export function updateTaskRecord(id: string, input: UpdateTaskInput): Task {
       : existing.completed_at ?? now
     : null;
 
-  getDatabase()
-    .prepare(
-      `UPDATE tasks
-       SET title = ?, category = ?, status = ?, description = ?, solution = ?, support_agent_id = ?, updated_at = ?, completed_at = ?
-       WHERE id = ?`,
-    )
-    .run(
-      nextTitle,
-      nextCategory,
-      nextStatus,
-      nextDescription,
-      nextSolution,
-      nextSupportAgentId,
-      now,
-      completedAt,
-      id,
-    );
+  const database = getDatabase();
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    database
+      .prepare(
+        `UPDATE tasks
+         SET title = ?, category = ?, status = ?, description = ?, solution = ?, support_agent_id = ?, updated_at = ?, completed_at = ?
+         WHERE id = ?`,
+      )
+      .run(
+        nextTitle,
+        nextCategory,
+        nextStatus,
+        nextDescription,
+        nextSolution,
+        nextSupportAgentId,
+        now,
+        completedAt,
+        id,
+      );
+    if (nextTagIds) {
+      replaceTaskTags(id, nextTagIds);
+    }
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
   return getTask(id);
 }
 

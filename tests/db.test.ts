@@ -66,6 +66,7 @@ test("migrates the legacy schema without losing task data", async () => {
   assert.equal(task.description, "旧任务详情");
   assert.equal(task.solution, "");
   assert.equal(task.supportAgent, null);
+  assert.deepEqual(task.tags, []);
   assert.equal(task.links[0]?.title, "旧链接");
   assert.equal(task.images[0]?.fileName, "legacy.png");
 
@@ -73,6 +74,10 @@ test("migrates the legacy schema without losing task data", async () => {
   const columns = database.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
   assert.equal(columns.some((column) => column.name === "solution"), true);
   assert.equal(columns.some((column) => column.name === "support_agent_id"), true);
+  const tagTables = database
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('tags', 'task_tags')")
+    .all() as Array<{ name: string }>;
+  assert.deepEqual(tagTables.map((table) => table.name).sort(), ["tags", "task_tags"]);
   database.close();
 });
 
@@ -110,6 +115,59 @@ test("stores support agents, assignments, and task solutions", async () => {
     () => updateTaskRecord(bug.id, { category: "bug", supportAgentId: "missing-agent" }),
     /客服不存在/,
   );
+});
+
+test("manages global tags and task tag assignments", async () => {
+  const {
+    createTaskRecord,
+    createTaskTagRecord,
+    deleteTaskRecords,
+    deleteTaskTagRecord,
+    getTask,
+    listTaskTagRecords,
+    updateTaskRecord,
+    updateTaskTagRecord,
+  } = await getDatabaseModule();
+
+  const first = createTaskTagRecord({ name: "  线上问题  ", color: "red" });
+  const second = createTaskTagRecord({ name: "支付", color: "amber" });
+  assert.deepEqual(listTaskTagRecords().slice(-2).map((tag) => tag.id), [first.id, second.id]);
+  assert.throws(() => createTaskTagRecord({ name: "线上问题", color: "blue" }), /标签已存在/);
+  assert.throws(
+    () => createTaskTagRecord({ name: "非法颜色", color: "purple" as "blue" }),
+    /标签颜色无效/,
+  );
+
+  const task = createTaskRecord({
+    title: "标签关联测试",
+    category: "bug",
+    tagIds: [first.id, second.id, first.id],
+  });
+  assert.deepEqual(task.tags.map((tag) => tag.id), [first.id, second.id]);
+
+  const ordinaryEdit = updateTaskRecord(task.id, { title: "标签关联测试（已编辑）" });
+  assert.deepEqual(ordinaryEdit.tags.map((tag) => tag.id), [first.id, second.id]);
+  assert.deepEqual(updateTaskRecord(task.id, { tagIds: [] }).tags, []);
+  updateTaskRecord(task.id, { tagIds: [first.id, second.id] });
+
+  const renamed = updateTaskTagRecord(first.id, { name: "线上故障", color: "blue" });
+  assert.equal(renamed.name, "线上故障");
+  assert.equal(getTask(task.id).tags[0]?.color, "blue");
+  assert.throws(() => updateTaskTagRecord(first.id, { name: "支付", color: "gray" }), /标签已存在/);
+  assert.throws(
+    () => updateTaskRecord(task.id, { title: "不应保存", tagIds: ["missing-tag"] }),
+    /标签不存在/,
+  );
+  assert.equal(getTask(task.id).title, "标签关联测试（已编辑）");
+
+  deleteTaskTagRecord(second.id);
+  assert.deepEqual(getTask(task.id).tags.map((tag) => tag.id), [first.id]);
+  assert.equal(getTask(task.id).title, "标签关联测试（已编辑）");
+
+  deleteTaskRecords([task.id]);
+  const database = new DatabaseSync(testDatabasePath);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM task_tags WHERE task_id = ?").get(task.id)?.count, 0);
+  database.close();
 });
 
 test("bulk deletes tasks and cascades links and image records", async () => {

@@ -6,13 +6,17 @@ import {
   addTaskLinkRecord,
   createSupportAgentRecord,
   createTaskRecord,
+  createTaskTagRecord,
   deleteTaskRecords,
   deleteTaskImageRecord,
+  deleteTaskTagRecord,
   getTask,
   insertTaskImage,
   listSupportAgentRecords,
   listTaskGroups,
+  listTaskTagRecords,
   updateTaskRecord,
+  updateTaskTagRecord,
 } from "@/lib/db";
 import { removeImage, saveImage } from "@/lib/storage";
 import {
@@ -25,13 +29,16 @@ import type {
   CreateSupportAgentInput,
   CreateTaskInput,
   CreateTaskLinkInput,
+  CreateTaskTagInput,
   DeleteTasksResult,
   Task,
   TaskGroup,
   TaskImage,
   TaskLink,
+  TaskTag,
   SupportAgent,
   UpdateTaskInput,
+  UpdateTaskTagInput,
 } from "@/lib/types";
 
 export async function listTasks(view: BoardView, filter?: CompletedTaskFilter): Promise<TaskGroup[]> {
@@ -46,6 +53,27 @@ export async function createSupportAgent(input: CreateSupportAgentInput): Promis
   const agent = createSupportAgentRecord(input);
   revalidatePath("/");
   return agent;
+}
+
+export async function listTaskTags(): Promise<TaskTag[]> {
+  return listTaskTagRecords();
+}
+
+export async function createTaskTag(input: CreateTaskTagInput): Promise<TaskTag> {
+  const tag = createTaskTagRecord(input);
+  revalidatePath("/");
+  return tag;
+}
+
+export async function updateTaskTag(id: string, input: UpdateTaskTagInput): Promise<TaskTag> {
+  const tag = updateTaskTagRecord(id, input);
+  revalidatePath("/");
+  return tag;
+}
+
+export async function deleteTaskTag(id: string): Promise<void> {
+  deleteTaskTagRecord(id);
+  revalidatePath("/");
 }
 
 export async function createTask(input: CreateTaskInput): Promise<Task> {
